@@ -15,10 +15,12 @@ class FinSightState(TypedDict):
     earnings_data: Optional[dict]
     final_answer: Optional[str]
 
+import sys
+
 mcp_client = MultiServerMCPClient(
     {
         "finsight-tools": {
-            "command": "python3",
+            "command": sys.executable,
             "args": ["mcp_server.py"],
             "transport": "stdio",
         }
@@ -30,10 +32,15 @@ async def market_agent_node(state: FinSightState) -> dict:
     fetch_price_tool = next(t for t in tools if t.name == "fetch_price")
 
     raw_result = await fetch_price_tool.ainvoke({"ticker": state["ticker"]})
-
-    # raw_result looks like: [{'type': 'text', 'text': '{"ticker":...}', 'id': '...'}]
-    json_string = raw_result[0]["text"]
-    price_data = json.loads(json_string)
+    json_string = "{}"
+    if isinstance(raw_result, str):
+        json_string = raw_result
+    elif isinstance(raw_result, list) and len(raw_result) > 0:
+        json_string = raw_result[0].get("text", "{}")
+    try:
+        price_data = json.loads(json_string)
+    except json.JSONDecodeError:
+        price_data = None
 
     return {"price_data": price_data}
 
@@ -42,10 +49,15 @@ async def sentiment_agent_node(state: FinSightState) -> dict:
     get_news_tool = next(t for t in tools if t.name == "get_news")
 
     raw_result = await get_news_tool.ainvoke({"ticker": state["ticker"], "limit": 5})
-
-    # raw_result looks like: [{'type': 'text', 'text': '[{"headline":...}]', 'id': '...'}]
-    json_string = raw_result[0]["text"]
-    news_data = json.loads(json_string)
+    json_string = "[]"
+    if isinstance(raw_result, str):
+        json_string = raw_result
+    elif isinstance(raw_result, list) and len(raw_result) > 0:
+        json_string = raw_result[0].get("text", "[]")
+    try:
+        news_data = json.loads(json_string)
+    except json.JSONDecodeError:
+        news_data = []
 
     return {"news_data": news_data}
 
@@ -54,24 +66,32 @@ async def earnings_agent_node(state: FinSightState) -> dict:
     get_earnings_tool = next(t for t in tools if t.name == "get_earnings")
 
     raw_result = await get_earnings_tool.ainvoke({"ticker": state["ticker"]})
-
-    # raw_result looks like: [{'type': 'text', 'text': '{"trailing_eps":...}', 'id': '...'}]
-    json_string = raw_result[0]["text"]
-    earnings_data = json.loads(json_string)
+    json_string = "{}"
+    if isinstance(raw_result, str):
+        json_string = raw_result
+    elif isinstance(raw_result, list) and len(raw_result) > 0:
+        json_string = raw_result[0].get("text", "{}")
+    try:
+        earnings_data = json.loads(json_string)
+    except json.JSONDecodeError:
+        earnings_data = None
 
     return {"earnings_data": earnings_data}
 async def aggregator_node(state: FinSightState) -> dict:
-    prompt = f"""You are a financial analyst. Based on the following data, give a concise recommendation for {state['ticker']}.
+    prompt = f"""You are a financial analyst. Analyse {state['ticker']} based on available data.
 
-User's question: {state['query']}
+User question: {state['query']}
 
-Price data: {state['price_data']}
+Available data:
+- Price data: {state['price_data'] if state['price_data'] and state['price_data'].get('price') else 'Not available (ticker may need exchange suffix e.g. TCS.NS for NSE stocks)'}
+- Earnings data: {state['earnings_data'] if state['earnings_data'] and state['earnings_data'].get('trailing_eps') else 'Not available'}
+- Recent news: {state['news_data'] if state['news_data'] else 'Not available'}
 
-Earnings data: {state['earnings_data']}
-
-Recent news headlines: {state['news_data']}
-
-Give a clear, well-reasoned answer covering: current valuation, earnings trend, and market sentiment from news. End with a balanced take — not financial advice, just analysis."""
+Rules:
+- Only analyse data that is actually available
+- If price/earnings data is missing, explain why (wrong ticker format) and suggest the correct format
+- Never fabricate numbers
+- Be concise and direct"""
 
     response = await llm.ainvoke(prompt)
 

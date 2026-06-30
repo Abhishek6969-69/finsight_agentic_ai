@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-
+import ReactMarkdown from "react-markdown";
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -95,7 +95,11 @@ export default function ChatUI() {
                   : "bg-gray-800 text-gray-100"
               }`}
             >
-              {msg.content}
+            {msg.role === "assistant" ? (
+  <ReactMarkdown>{msg.content}</ReactMarkdown>
+) : (
+  msg.content
+)}
               {msg.role === "assistant" && loading && i === messages.length - 1 && (
                 <span className="inline-block w-1.5 h-4 bg-purple-400 ml-1 animate-pulse" />
               )}
