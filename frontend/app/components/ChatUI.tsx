@@ -10,6 +10,14 @@ interface Message {
   content: string;
 }
 
+interface HistoryItem {
+  thread_id: string;
+  ticker: string;
+  query: string;
+  final_answer: string;
+  timestamp: string;
+}
+
 const SUGGESTIONS = [
   {
     icon: "📊",
@@ -47,12 +55,35 @@ export default function ChatUI() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  async function fetchHistory() {
+    try {
+      const res = await fetch("http://localhost:8000/history");
+      const data = await res.json();
+      setHistory(data.history || []);
+    } catch (err) {
+      console.error("Failed to fetch history:", err);
+    }
+  }
+
+  function loadFromHistory(item: HistoryItem) {
+    setTicker(item.ticker);
+    setMessages([
+      { role: "user", content: `[${item.ticker}] ${item.query}` },
+      { role: "assistant", content: item.final_answer },
+    ]);
+  }
 
   async function handleSubmit(overrideTicker?: string, overrideQuery?: string) {
     const t = overrideTicker || ticker;
@@ -88,7 +119,10 @@ export default function ChatUI() {
         for (const line of lines) {
           try {
             const json = JSON.parse(line.replace("data: ", ""));
-            if (json.done) break;
+            if (json.done) {
+              fetchHistory();
+              break;
+            }
             if (json.token) {
               setMessages((prev) => {
                 const updated = [...prev];
@@ -195,8 +229,47 @@ export default function ChatUI() {
         {/* Divider */}
         <div className="mx-5 mb-3" style={{ borderTop: "1px solid var(--border-subtle)" }} />
 
-        {/* Quick Prompts */}
-        <div className="px-4 flex-1 overflow-y-auto">
+        {/* History & Quick Prompts */}
+        <div className="px-4 flex-1 overflow-y-auto pb-4">
+          {history.length > 0 && (
+            <div className="mb-6">
+              <p className="text-[11px] font-semibold uppercase tracking-wider mb-3 px-1" style={{ color: "var(--text-muted)" }}>
+                Past Analyses
+              </p>
+              <div className="space-y-2">
+                {history.map((item) => (
+                  <button
+                    key={item.thread_id}
+                    onClick={() => loadFromHistory(item)}
+                    className="w-full text-left p-3 rounded-xl transition-all duration-200 cursor-pointer"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+                    }}
+                  >
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-xs font-mono font-bold" style={{ color: "var(--text-accent)" }}>
+                        {item.ticker}
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {new Date(item.timestamp).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-xs line-clamp-2" style={{ color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                      {item.query}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <p className="text-[11px] font-semibold uppercase tracking-wider mb-3 px-1" style={{ color: "var(--text-muted)" }}>
             Quick Prompts
           </p>

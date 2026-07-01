@@ -1,6 +1,9 @@
+import os
 from typing import TypedDict, Optional
 from langchain_mcp_adapters.client import MultiServerMCPClient
 import json
+from langgraph.checkpoint.mongodb import MongoDBSaver
+import uuid
 from langchain_groq import ChatGroq
 import asyncio
 from langgraph.graph import StateGraph, START, END
@@ -113,19 +116,28 @@ graph.add_edge("sentiment_agent", "aggregator")
 graph.add_edge("earnings_agent", "aggregator")
 
 graph.add_edge("aggregator", END)
-app = graph.compile()
+async def create_app():
+    mongodb_client = MongoDBSaver.from_conn_string(
+        os.getenv("MONGODB_URL", "mongodb://localhost:27017"),
+        db_name="finsight",
+        collection_name="checkpoints"
+    )
+    return graph.compile(checkpointer=mongodb_client)
 
 
 async def test_graph():
-    result = await app.ainvoke({
-        "ticker": "AAPL",
-        "query": "should I buy?",
-        "price_data": None,
-        "news_data": None,
-        "earnings_data": None,
-        "final_answer": None,
-    })
+    agent = await create_app()
+    result = await agent.ainvoke(
+        {
+            "ticker": "AAPL",
+            "query": "should I buy?",
+            "price_data": None,
+            "news_data": None,
+            "earnings_data": None,
+            "final_answer": None,
+        },
+        config={"configurable": {"thread_id": "test-thread-1"}}
+    )
     print("Final state:", result)
-
 if __name__ == "__main__":
     asyncio.run(test_graph())
